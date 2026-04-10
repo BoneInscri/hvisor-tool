@@ -9,7 +9,13 @@ include ./virtio/devices/gpu/Makefile
 objects ?= $(sources:.c=.o)
 ivc_demo_object ?= ivc_demo.o
 rpmsg_demo_object ?= rpmsg_demo.o
-hvisor_objects ?= $(filter-out $(ivc_demo_object) $(rpmsg_demo_object), $(objects))
+
+# hyperamp
+hyperamp_backend_object ?= hyperamp_backend_proxy_sim.o
+# hyperamp
+
+
+hvisor_objects ?= $(filter-out $(ivc_demo_object) $(rpmsg_demo_object) $(hyperamp_backend_object), $(objects))
 ROOT ?=
 # gnu or musl
 LIBC ?= gnu
@@ -52,6 +58,11 @@ ifeq ($(VIRTIO_GPU), y)
 	CFLAGS += -DENABLE_VIRTIO_GPU
 endif
 
+ifeq ($(SHM), y)
+	sources += $(wildcard ./shm/*.c)
+	CFLAGS += -DENABLE_SHM
+endif
+
 include $(sources:.c=.d)
 
 ifeq ($(DEBUG), y)
@@ -78,7 +89,9 @@ endif
 
 .PHONY: all clean
 
-all: hvisor ivc_demo rpmsg_demo
+# hyperamp
+all: hvisor ivc_demo rpmsg_demo hyperamp_linux hyperamp_backend
+# hyperamp
 
 %.d: %.c
 	@set -e; rm -f $@; \
@@ -98,5 +111,15 @@ ivc_demo: $(ivc_demo_object)
 rpmsg_demo: $(rpmsg_demo_object)
 	$(CC) -o $@ $^ $(CFLAGS) $(include_dirs) $(LDFLAGS) $(LIBS)
 
+# hyperamp
+hyperamp_linux: shm/hyperamp_linux_shm.c ../cJSON/cJSON.c
+	$(CC) -o $@ $^ $(CFLAGS) $(include_dirs) $(LIBS) -DHYPERAMP_TEST_MAIN
+
+hyperamp_backend: hyperamp_backend_proxy_sim.c shm/hyperamp_linux_shm.c ../cJSON/cJSON.c
+	$(CC) -o $@ $^ $(CFLAGS) $(include_dirs) $(LIBS)
+
+
 clean:
-	@rm -f hvisor ivc_demo rpmsg_demo *.o *.d *.d.* virtio/*.o virtio/*.d virtio/*.d.* virtio/devices/*/*.o virtio/devices/*/*.d virtio/devices/*/*.d.* ../cJSON/*.o ../cJSON/*.d ../cJSON/*.d.*
+# 	@rm -f hvisor ivc_demo rpmsg_demo *.o *.d *.d.* virtio/*.o virtio/*.d virtio/*.d.* virtio/devices/*/*.o virtio/devices/*/*.d virtio/devices/*/*.d.* ../cJSON/*.o ../cJSON/*.d ../cJSON/*.d.*
+	@rm -f hvisor ivc_demo rpmsg_demo *.o *.d *.d.* virtio/*.o virtio/*.d virtio/*.d.* virtio/devices/*/*.o virtio/devices/*/*.d virtio/devices/*/*.d.* ../cJSON/*.o ../cJSON/*.d ../cJSON/*.d.* shm/*.o shm/*.d shm/*.d.*
+

@@ -2,6 +2,8 @@
 /tools/hvisor
 /tools/ivc_demo
 /tools/rpmsg_demo
+/tools/hyperamp_linux
+/tools/hyperamp_backend
 *.mod.[co]
 *.mod
 *.[oa]

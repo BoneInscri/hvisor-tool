@@ -1,13 +1,36 @@
 {
     "zones": [
         {
-            "id": 1,
-            "name" : "npucore",
+            "id": 2,
+            "name" : "sel4-la",
             "memory_region": [
                 {
                     "type": "normal",
-                    "zonex_ipa": "0x80000000",
-                    "size": "0x2f000000"
+                    "zonex_ipa": "0x2000000",
+                    "size": "0x2a2000"
+                },
+                {
+                    "type": "normal",
+                    "zonex_ipa": "0x90000000",
+                    "size": "0x30000000"
+                },
+                {
+                    "type": "shm",
+                    "flag": "sel4-tx-queue",
+                    "zonex_ipa": "0x7e000000",
+                    "size": "0x4000"
+                },
+                {
+                    "type": "shm",
+                    "flag": "sel4-rx-queue",
+                    "zonex_ipa": "0x7e004000",
+                    "size": "0x4000"
+                },
+                {
+                    "type": "shm",
+                    "flag": "sel4-data-region",
+                    "zonex_ipa": "0x7e008000",
+                    "size": "0x400000"
                 }
             ]
         }

@@ -1,0 +1,34 @@
+{
+    "arch": "loongarch64",
+    "name": "sel4-la",
+    "zone_id": 2,
+    "boot_method": "normal",
+    "cpus": [
+      4
+    ],
+    "memory_regions": [
+        {
+            "type": "io",
+            "physical_start": "0x1fe00000",
+            "virtual_start": "0x1fe00000",
+            "size": "0x1000"
+        }
+    ],
+    "interrupts": [
+      100
+    ],
+    "ivc_configs": [],
+    "kernel_args": "",
+    "kernel_filepath": "../Guest/sel4.bin",
+    "dtb_filepath": "./test.bin",
+    "kernel_load_paddr": "0x2000000",
+    "dtb_load_paddr": "0xc0000000",
+    "entry_point": "0x9000000002000000",
+    "arch_config": {
+        "dummy": "0x1234"
+    },
+    "pci_config": {
+    },
+    "num_pci_devs": 0,
+    "alloc_pci_devs": []
+}

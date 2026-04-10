@@ -27,4 +27,5 @@ make -C "$SCRIPT_DIR" \
     KDIR="$KDIR" \
     CROSS_COMPILE=loongarch64-linux-gnu- \
     LOG=LOG_INFO \
+    SHM=y \
     "$@"

@@ -55,6 +55,8 @@ tools: env check-config-change
 	$(MAKE) -C tools all
 	@mkdir -p $(OUTPUT_DIR)
 	cp tools/hvisor $(OUTPUT_DIR)
+	cp tools/hyperamp_linux $(OUTPUT_DIR)
+	cp tools/hyperamp_backend $(OUTPUT_DIR)
 
 driver: env check-kdir check-config-change
 	$(MAKE) -C driver all
