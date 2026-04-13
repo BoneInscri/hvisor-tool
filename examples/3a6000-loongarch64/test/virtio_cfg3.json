@@ -1,0 +1,15 @@
+{
+    "zones": [
+        {
+            "id": 3,
+            "name": "linux-dtb",
+            "memory_region": [
+                {
+                    "type": "normal",
+                    "zonex_ipa": "0x200000",
+                    "size": "0xec00000"
+                }
+            ]
+        }
+    ]
+}

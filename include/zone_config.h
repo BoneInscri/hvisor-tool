@@ -123,7 +123,7 @@ struct arch_zone_config {
 
 #ifdef LOONGARCH64
 struct arch_zone_config {
-    __u64 dummy;
+    __u64 acpi_rsdp_gpa; /* GPA of the reconstructed RSDP, filled by hvisor-tool */
 };
 #endif
 
@@ -157,7 +157,7 @@ struct ivc_config {
 };
 typedef struct ivc_config ivc_config_t;
 
-#define CONFIG_MAGIC_VERSION 0x05
+#define CONFIG_MAGIC_VERSION 0x06
 
 // Every time you change the struct, you should also change the
 // `CONFIG_MAGIC_VERSION`
@@ -177,6 +177,7 @@ struct zone_config {
     __u64 dtb_load_paddr;
     __u64 dtb_size;
     char name[CONFIG_NAME_MAXLEN];
+    char boot_method[CONFIG_NAME_MAXLEN];
 
     arch_zone_config_t arch_config;
     __u64 num_pci_bus;

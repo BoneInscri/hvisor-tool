@@ -1,0 +1,15 @@
+{
+    "zones": [
+        {
+            "id": 4,
+            "name": "rt-thread",
+            "memory_region": [
+                {
+                    "type": "normal",
+                    "zonex_ipa": "0x200000",
+                    "size": "0x5000000"
+                }
+            ]
+        }
+    ]
+}

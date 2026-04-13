@@ -20,6 +20,7 @@
 #include <stdint.h>
 #include <sys/uio.h>
 #include <unistd.h>
+#include <string.h>
 
 #define VIRT_QUEUE_SIZE 512
 

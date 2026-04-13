@@ -69,7 +69,7 @@
 /* 共享内存物理地址 - 新版 HyperAMP 布局 (双向通信) */
 //实际上只用mmap起始地址SHM_START_PADDR并加上SHM_DATA_SIZE就行了
 // 3A5000/6000
-#define SHM_START_PADDR             0x7E000000UL  // 共享内存起始物理地址
+#define SHM_START_PADDR             0xc0000000UL  // 共享内存起始物理地址
 #define SHM_QUEUE_SIZE              (4 * 4096)    // 16KB 队列控制区 (实际 ~4068 bytes)
 #define SHM_DATA_SIZE               (4 * 1024 * 1024)  // 4MB 数据区
 
@@ -142,7 +142,7 @@ static void parse_global_addr(char *shm_json_path) {
   buf[fsize] = '\0';
   fclose(fp);
 
-  /* JSON 格式为顶层数组 */
+  /* JSON 格式为顶层数组，或 {"shm_regions": [...]} 对象 */
   cJSON *root = cJSON_Parse(buf);
   free(buf);
   if (!root) {
@@ -150,9 +150,18 @@ static void parse_global_addr(char *shm_json_path) {
     while(1) {}
   }
 
-  int n = cJSON_GetArraySize(root);
+  /* 兼容 {"shm_regions": [...]} 格式 */
+  cJSON *arr = root;
+  if (cJSON_IsObject(root)) {
+    cJSON *shm_regions = cJSON_GetObjectItem(root, "shm_regions");
+    if (shm_regions && cJSON_IsArray(shm_regions)) {
+      arr = shm_regions;
+    }
+  }
+
+  int n = cJSON_GetArraySize(arr);
   for (int j = 0; j < n; j++) {
-    cJSON *region = cJSON_GetArrayItem(root, j);
+    cJSON *region = cJSON_GetArrayItem(arr, j);
     cJSON *flag_item = cJSON_GetObjectItem(region, "flag");
     cJSON *z0_item   = cJSON_GetObjectItem(region, "zone0_ram_ipa");
     cJSON *size_item = cJSON_GetObjectItem(region, "size");
@@ -166,9 +175,11 @@ static void parse_global_addr(char *shm_json_path) {
     if (sz == 0) { printf("[WARN] size=0 for region %d\n", j); continue; }
 
     if (!strcmp(region_flag, "sel4-tx-queue")) {
-      g_ctx.tx_phys_addr = paddr; g_ctx.tx_phys_size = sz;
-    } else if (!strcmp(region_flag, "sel4-rx-queue")) {
+      /* sel4-tx-queue = seL4 发送、Linux 接收，所以是 Linux 的 RX */
       g_ctx.rx_phys_addr = paddr; g_ctx.rx_phys_size = sz;
+    } else if (!strcmp(region_flag, "sel4-rx-queue")) {
+      /* sel4-rx-queue = seL4 接收、Linux 发送，所以是 Linux 的 TX */
+      g_ctx.tx_phys_addr = paddr; g_ctx.tx_phys_size = sz;
     } else if (!strcmp(region_flag, "sel4-data-region")) {
       g_ctx.data_phys_addr = paddr; g_ctx.data_phys_size = sz;
     } else {
@@ -1072,6 +1083,11 @@ int main(int argc, char *argv[])
     if (shm_json_path) {
         parse_global_addr(shm_json_path);
     } else {
+#if defined(__loongarch__) || defined(__loongarch64) || defined(LOONGARCH64)
+        fprintf(stderr, "Error: LoongArch platform requires -j <shm_json_path> to be specified.\n");
+        print_usage(argv[0]);
+        return 1;
+#else
         // 兼容旧的 -a 参数：假定连续布局
         uint64_t base = phys_addr ? phys_addr : SHM_START_PADDR;
         g_ctx.rx_phys_addr   = base;
@@ -1080,6 +1096,7 @@ int main(int argc, char *argv[])
         g_ctx.tx_phys_size   = SHM_QUEUE_SIZE;
         g_ctx.data_phys_addr = base + 2 * SHM_QUEUE_SIZE;
         g_ctx.data_phys_size = SHM_DATA_SIZE;
+#endif
     }
 
     // 初始化

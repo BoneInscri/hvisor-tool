@@ -1,10 +1,10 @@
 {
   "arch": "loongarch64",
   "name": "rthread",
-  "zone_id": 2,
+  "zone_id": 4,
   "boot_method": "normal",
   "cpus": [
-    6
+    5
   ],
   "memory_regions": [
     {
@@ -21,16 +21,17 @@
     }
   ],
   "interrupts": [
+    100
   ],
   "ivc_configs": [],
   "kernel_args": "NOT_USED_YET",
-  "kernel_filepath": "./Guest/rtthread.bin",
+  "kernel_filepath": "../Guest/rtthread.bin",
   "dtb_filepath": "./test.bin",
   "kernel_load_paddr": "0x200000",
   "dtb_load_paddr": "0xc0000000",
   "entry_point": "9000000000200000",
   "arch_config": {
-      "dummy": "0x1234"
+    "acpi_rsdp_gpa": "0x0"
   },
   "pci_config": {
   },

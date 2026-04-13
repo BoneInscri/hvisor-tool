@@ -1,47 +1,32 @@
 {
     "arch": "loongarch64",
-    "name": "linux1",
-    "zone_id": 1,
+    "name": "linux1-dtb",
+    "zone_id": 3,
     "boot_method": "normal",
     "cpus": [
-      100
+      6, 7
     ],
     "memory_regions": [
         {
-            "type": "io",
-            "physical_start": "0x1fe00000",
-            "virtual_start": "0x1fe00000",
-            "size": "0x1000"
+          "type": "io",
+          "physical_start": "0x1fe00000",
+          "virtual_start":  "0x1fe00000",
+          "size": "0x1000"
         },
         {
-            "type": "io",
-            "physical_start": "0x10000000",
-            "virtual_start":  "0x10000000",
-            "size": "0x2000"
+            "note": "for efi boot (special)",
+            "type": "ram",
+            "physical_start": "0xfa000000",
+            "virtual_start":  "0xfa000000",
+            "size": "0x5000000"
         },
         {
-            "type": "io",
-            "physical_start": "0x10010000",
-            "virtual_start":  "0x10010000",
-            "size": "0x20000"
-        },
-        {
-            "type": "io",
-            "physical_start": "0x100d0000",
-            "virtual_start":  "0x100d0000",
-            "size": "0x1000"
-        },
-        {
-            "type": "io",
-            "physical_start": "0xfe00000000",
-            "virtual_start":  "0xfe00000000",
-            "size": "0x20000000"
-        },
-        {
-            "type": "io",
-            "physical_start": "0x18408000",
-            "virtual_start":  "0x18408000",
-            "size": "0x8000"
+            "note": "for efi boot (special)",
+            "type": "ram",
+            "physical_start": "0x90000000",
+            "virtual_start":  "0x90000000",
+            "zonex_ipa": "0x90000000",
+            "size": "0x6a000000"
         }
     ],
     "interrupts": [
@@ -49,16 +34,19 @@
     ],
     "ivc_configs": [],
     "kernel_args": "BOOT_IMAGE=loglevel=7 verbose earlycon=uart,mmio,0x1fe001e0,115200n8 console=ttyS0,115200",
-    "kernel_filepath": "./Guest/vmlinux-dtb.bin",
+    "kernel_filepath": "../Guest/vmlinux-dtb.bin",
     "dtb_filepath": "./test.bin",
     "kernel_load_paddr": "0x00200000",
     "dtb_load_paddr": "0xc0000000",
     "entry_point": "0x9000000000faf000",
     "arch_config": {
-        "dummy": "0x1234"
+      "acpi_rsdp_gpa": "0x0"
     },
     "pci_config": {
     },
     "num_pci_devs": 0,
-    "alloc_pci_devs": []
+    "alloc_pci_devs": [],
+    "acpi_config": {
+        "acpi_tables_dir": "/sys/firmware/acpi/tables"
+    }
 }

@@ -4,7 +4,7 @@
     "zone_id": 2,
     "boot_method": "normal",
     "cpus": [
-      4
+      7
     ],
     "memory_regions": [
         {

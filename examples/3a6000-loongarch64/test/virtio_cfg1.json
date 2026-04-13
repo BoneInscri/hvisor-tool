@@ -2,7 +2,7 @@
     "zones": [
         {
             "id": 1,
-            "name": "linux",
+            "name": "linux-acpi",
             "memory_region": [
                 {
                     "type": "normal",
@@ -10,9 +10,20 @@
                     "size": "0xec00000"
                 },
                 {
+                    "note": "heap",
                     "type": "normal",
                     "zonex_ipa": "0x100000000",
                     "size": "0x20000000"
+                },
+                {
+                    "type": "normal",
+                    "zonex_ipa": "0x800000000",
+                    "size": "0x80000000"
+                },
+                {
+                    "type": "normal",
+                    "zonex_ipa": "0x7f0000000",
+                    "size": "0x10000000"
                 }
             ]
         }

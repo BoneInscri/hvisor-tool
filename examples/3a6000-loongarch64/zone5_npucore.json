@@ -1,0 +1,31 @@
+{
+  "arch": "loongarch64",
+  "name": "npucore",
+  "zone_id": 5,
+  "boot_method": "normal",
+  "cpus": [
+    6
+  ],
+  "memory_regions": [
+    {
+      "type": "io",
+      "physical_start": "0x1fe00000",
+      "virtual_start": "0x1fe00000",
+      "size": "0x2000"
+    }
+  ],
+  "interrupts": [],
+  "ivc_configs": [],
+  "kernel_args": "NOT_USED_YET",
+  "kernel_filepath": "../Guest/npucore.bin",
+  "dtb_filepath": "",
+  "kernel_load_paddr": "0x80000000",
+  "dtb_load_paddr": "0x0",
+  "entry_point": "0x80000000",
+  "arch_config": {
+    "acpi_rsdp_gpa": "0x0"
+  },
+  "pci_config": {},
+  "num_pci_devs": 0,
+  "alloc_pci_devs": []
+}

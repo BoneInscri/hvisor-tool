@@ -484,10 +484,11 @@ static long hvisor_ioctl(struct file *file, unsigned int ioctl,
         }
         break;
     }
+
+#ifdef LOONGARCH64
     case HVISOR_LOAD_IMAGE:
         err = hvisor_load_image((struct hvisor_load_image_args __user *)arg);
         break;
-#ifdef LOONGARCH64
     case HVISOR_CLEAR_INJECT_IRQ:
         err = hvisor_call(HVISOR_HC_CLEAR_INJECT_IRQ, 0, 0);
         break;

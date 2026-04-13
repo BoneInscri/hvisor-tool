@@ -4,20 +4,32 @@
     "zone_id": 1,
     "boot_method": "acpi",
     "cpus": [
-      4, 5
+      4
     ],
     "memory_regions": [
         {
             "type": "io",
             "physical_start": "0x1fe00000",
             "virtual_start": "0x1fe00000",
-            "size": "0x1000"
+            "size": "0x2000"
+        },
+        {
+            "type": "io",
+            "physical_start": "0x1fe10000",
+            "virtual_start":  "0x1fe10000",
+            "size": "0x2000"
         },
         {
             "type": "io",
             "physical_start": "0x10000000",
             "virtual_start":  "0x10000000",
-            "size": "0x2000"
+            "size": "0x1000"
+        },
+        {
+            "type": "io",
+            "physical_start": "0x10002000",
+            "virtual_start":  "0x10002000",
+            "size": "0x1000"
         },
         {
             "type": "io",
@@ -27,16 +39,81 @@
         },
         {
             "type": "io",
+            "physical_start": "0x10080000",
+            "virtual_start":  "0x10080000",
+            "size": "0x1000"
+        },
+        {
+            "type": "io",
+            "physical_start": "0x10090000",
+            "virtual_start":  "0x10090000",
+            "size": "0x1000"
+        },
+        {
+            "type": "io",
+            "physical_start": "0x18000000",
+            "virtual_start":  "0x18000000",
+            "size": "0x1000"
+        },
+        {
+            "type": "io",
+            "physical_start": "0x100a0000",
+            "virtual_start":  "0x100a0000",
+            "size": "0x1000"
+        },
+        {
+            "type": "io",
             "physical_start": "0x100d0000",
             "virtual_start":  "0x100d0000",
             "size": "0x1000"
         },
         {
-            "note": "for efi boot (special)",
-            "type": "ram",
-            "physical_start": "0x90000000",
-            "virtual_start":  "0x90000000",
-            "size": "0x6a000000"
+            "type": "io",
+            "physical_start": "0x100e0000",
+            "virtual_start":  "0x100e0000",
+            "size": "0x1000"
+        },
+        {
+            "type": "io",
+            "physical_start": "0xe0030000000",
+            "virtual_start":  "0xe0030000000",
+            "size": "0x50000000"
+        },
+        {
+            "type": "io",
+            "physical_start": "0xefe00000000",
+            "virtual_start":  "0xefe00000000",
+            "size": "0x20000000"
+        },
+        {
+            "type": "io",
+            "physical_start": "0xefdfe000000",
+            "virtual_start":  "0xefdfe000000",
+            "size": "0x2000"
+        },
+        {
+            "type": "io",
+            "physical_start": "0xefdfc000000",
+            "virtual_start":  "0xefdfc000000",
+            "size": "0x2000000"
+        },
+        {
+            "type": "io",
+            "physical_start": "0xe8000000000",
+            "virtual_start":  "0xe8000000000",
+            "size": "0xc00000000"
+        },
+        {
+            "type": "io",
+            "physical_start": "0xe8c15000000",
+            "virtual_start":  "0xe8c15000000",
+            "size": "0x162000"
+        },
+        {
+            "type": "io",
+            "physical_start": "0xe0000000000",
+            "virtual_start":  "0xe0000000000",
+            "size": "0x30000000"
         },
         {
             "note": "for efi boot (special)",
@@ -48,9 +125,10 @@
         {
             "note": "for efi boot (special)",
             "type": "ram",
-            "physical_start": "0x800000000",
-            "virtual_start":  "0x800000000",
-            "size": "0x80000000"
+            "physical_start": "0x90000000",
+            "virtual_start":  "0x90000000",
+            "zonex_ipa": "0x90000000",
+            "size": "0x6a000000"
         }
     ],
     "interrupts": [

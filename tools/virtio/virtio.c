@@ -1760,7 +1760,7 @@ int virtio_start_from_json_dynamic(char *json_path) {
             goto err_out;
         }
         char filename[64];
-        snprintf(filename, sizeof(filename), "zone%d_ram.json", i + 1);
+        snprintf(filename, sizeof(filename), "zone%d_ram.json", zone_id);
         FILE *fp = fopen(filename, "w");
         if (!fp) {
             perror("Failed to open file for writing");
@@ -1781,7 +1781,7 @@ int virtio_start_from_json_dynamic(char *json_path) {
                 cJSON_Delete(zone_shm_root);
                 goto err_out;
             }
-            snprintf(filename, sizeof(filename), "zone%d_shm.json", i + 1);
+            snprintf(filename, sizeof(filename), "zone%d_shm.json", zone_id);
             fp = fopen(filename, "w");
             if (!fp) {
                 perror("Failed to open file for writing");

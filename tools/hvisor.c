@@ -24,6 +24,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "acpi_builder.h"
 #include "event_monitor.h"
 #include "hvisor.h"
 #include "json_parse.h"
@@ -659,9 +660,11 @@ err_out:
 static __u64 load_chunked_image_to_memory(const char *path, 
     __u64 load_ipa, zone_config_t *config, cJSON *ram_json) {
     
-    __u64 size, page_size, total_map_size;
+    uint64_t size;
+    __u64 page_size, total_map_size;
     int fd = open_dev();
     void *image_content;
+    (void)load_ipa;
 
     image_content = read_file(path, &size);
     // printf("load_chunked_image_to_memory, read file done, image_content: %p\n", 
@@ -789,7 +792,7 @@ static __u64 load_chunked_image_to_memory(const char *path,
         //     "ready to mmap, map_size_chunk: 0x%llx, load_chunk_hpa: 0x%llx, total_map_size_remain: %llx\n",
         //     map_size_chunk, load_chunk_hpa, total_map_size_remain);
 
-        void *virt_addr_chunk = (__u64)mmap(
+        void *virt_addr_chunk = mmap(
             NULL, map_size_chunk, PROT_READ | PROT_WRITE | PROT_EXEC,
             MAP_SHARED, fd, load_chunk_hpa); // use hvisor_mmap handler
 
@@ -832,7 +835,7 @@ static __u64 load_chunked_image_to_memory(const char *path,
     
     close(fd);
 
-    printf("load_chunked_image_to_memory, image_size : %llx\n", size);
+    printf("load_chunked_image_to_memory, image_size : %lx\n", size);
     return total_map_size;
 }
 #endif
@@ -1042,8 +1045,28 @@ static int zone_start_from_json_dynamic(const char *json_config_path, const char
         goto err_out;
     }
     strncpy(config->name, name_json->valuestring, CONFIG_NAME_MAXLEN);
+    strncpy(config->boot_method, boot_method_json->valuestring, CONFIG_NAME_MAXLEN - 1);
+    config->boot_method[CONFIG_NAME_MAXLEN - 1] = '\0';
 
     printf("Zone name: %s\n", config->name);
+    printf("Zone boot_method: %s\n", config->boot_method);
+
+#ifdef LOONGARCH64
+    // {
+    //     cJSON *acpi_cfg = cJSON_GetObjectItem(root_main, "acpi_config");
+    //     if (acpi_cfg != NULL) {
+    //         cJSON *dir_json = cJSON_GetObjectItem(acpi_cfg, "acpi_tables_dir");
+    //         if (dir_json == NULL || !cJSON_IsString(dir_json)) {
+    //             log_error("acpi_config requires string field 'acpi_tables_dir'");
+    //             goto err_out;
+    //         }
+    //         if (acpi_build_and_load(fd, dir_json->valuestring, config) != 0) {
+    //             log_error("acpi_build_and_load failed");
+    //             goto err_out;
+    //         }
+    //     }
+    // }
+#endif /* LOONGARCH64 */
 
 #ifndef LOONGARCH64
     // Parse architecture-specific configurations (interrupts for each platform)
@@ -1466,11 +1489,11 @@ static int zone_list(int argc, char *argv[] __attribute__((unused))) {
     __u64 cnt = CONFIG_MAX_ZONES;
     zone_info_t *zones = malloc(sizeof(zone_info_t) * cnt);
     zone_list_args_t args = {cnt, zones};
-    printf("zone_list: cnt %llu, zones %p\n", cnt, zones);
+    // printf("zone_list: cnt %llu, zones %p\n", cnt, zones);
     int fd = open_dev();
-    printf("zone_list, step1\n");
+    // printf("zone_list, step1\n");
     int ret = ioctl(fd, HVISOR_ZONE_LIST, &args);
-    printf("[trace] zone_list: ret = %d\n", ret);
+    // printf("[trace] zone_list: ret = %d\n", ret);
 
     if (ret < 0)
         perror("zone_list: ioctl failed");
