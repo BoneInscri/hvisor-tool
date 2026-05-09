@@ -15,22 +15,61 @@
                     "size": "0x30000000"
                 },
                 {
+                    "comment": "CH0: 2MB total (0xC0000000~0xC01FFFFF)",
                     "type": "shm",
-                    "flag": "sel4-tx-queue",
+                    "flag": "sel4-tx-queue-ch1",
                     "zonex_ipa": "0xc0000000",
                     "size": "0x4000"
                 },
                 {
                     "type": "shm",
-                    "flag": "sel4-rx-queue",
+                    "flag": "sel4-rx-queue-ch1",
                     "zonex_ipa": "0xc0004000",
                     "size": "0x4000"
                 },
                 {
                     "type": "shm",
-                    "flag": "sel4-data-region",
+                    "flag": "sel4-data-region-ch1",
                     "zonex_ipa": "0xc0008000",
-                    "size": "0x400000"
+                    "size": "0x1f8000"
+                },
+                {
+                    "comment": "CH1: 1MB total (0xC0200000~0xC02FFFFF)",
+                    "type": "shm",
+                    "flag": "sel4-tx-queue-ch2",
+                    "zonex_ipa": "0xc0200000",
+                    "size": "0x4000"
+                },
+                {
+                    "type": "shm",
+                    "flag": "sel4-rx-queue-ch2",
+                    "zonex_ipa": "0xc0204000",
+                    "size": "0x4000"
+                },
+                {
+                    "type": "shm",
+                    "flag": "sel4-data-region-ch2",
+                    "zonex_ipa": "0xc0208000",
+                    "size": "0xf8000"
+                },
+                {
+                    "comment": "CH2: 1MB total (0xC0300000~0xC03FFFFF)",
+                    "type": "shm",
+                    "flag": "sel4-tx-queue-ch3",
+                    "zonex_ipa": "0xc0300000",
+                    "size": "0x4000"
+                },
+                {
+                    "type": "shm",
+                    "flag": "sel4-rx-queue-ch3",
+                    "zonex_ipa": "0xc0304000",
+                    "size": "0x4000"
+                },
+                {
+                    "type": "shm",
+                    "flag": "sel4-data-region-ch3",
+                    "zonex_ipa": "0xc0308000",
+                    "size": "0xf8000"
                 }
             ]
         }

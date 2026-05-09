@@ -66,14 +66,36 @@
 
 /* ==================== 配置定义 ==================== */
 
-/* 共享内存物理地址 - 新版 HyperAMP 布局 (双向通信) */
-//实际上只用mmap起始地址SHM_START_PADDR并加上SHM_DATA_SIZE就行了
-// 3A5000/6000
-#define SHM_START_PADDR             0xc0000000UL  // 共享内存起始物理地址
-#define SHM_QUEUE_SIZE              (4 * 4096)    // 16KB 队列控制区 (实际 ~4068 bytes)
-#define SHM_DATA_SIZE               (4 * 1024 * 1024)  // 4MB 数据区
+/* 共享内存物理地址 - HyperAMP 3通道布局 (LoongArch, 页大小 16KB = 0x4000)
+ *
+ * CH0: TX=0xC0000000(16KB), RX=0xC0004000(16KB), Data=0xC0008000(2MB-32KB)  → 占 2MB
+ * CH1: TX=0xC0200000(16KB), RX=0xC0204000(16KB), Data=0xC0208000(1MB-32KB)  → 占 1MB
+ * CH2: TX=0xC0300000(16KB), RX=0xC0304000(16KB), Data=0xC0308000(1MB-32KB)  → 占 1MB
+ * 总占用: 0xC0000000 ~ 0xC0400000 = 4MB
+ */
+#define SHM_CH0_TX_PADDR            0xc0000000UL
+#define SHM_CH0_RX_PADDR            0xc0004000UL
+#define SHM_CH0_DATA_PADDR          0xc0008000UL
 
-#define SHM_TOTAL_SIZE              (SHM_QUEUE_SIZE * 2 + SHM_DATA_SIZE)  // 总计约 4.01MB
+#define SHM_CH1_TX_PADDR            0xc0200000UL
+#define SHM_CH1_RX_PADDR            0xc0204000UL
+#define SHM_CH1_DATA_PADDR          0xc0208000UL
+
+#define SHM_CH2_TX_PADDR            0xc0300000UL
+#define SHM_CH2_RX_PADDR            0xc0304000UL
+#define SHM_CH2_DATA_PADDR          0xc0308000UL
+
+/* 兼容旧代码 */
+#define SHM_START_PADDR             SHM_CH0_TX_PADDR
+#define SHM_CH1_PADDR               SHM_CH1_TX_PADDR
+#define SHM_CH2_PADDR               SHM_CH2_TX_PADDR
+
+#define SHM_QUEUE_SIZE              (4 * 4096)                           // 16KB
+#define SHM_CH0_DATA_SIZE           (2 * 1024 * 1024 - SHM_QUEUE_SIZE * 2)  // 2MB-32KB
+#define SHM_CH1_DATA_SIZE           (1 * 1024 * 1024 - SHM_QUEUE_SIZE * 2)  // 1MB-32KB
+#define SHM_CH2_DATA_SIZE           (1 * 1024 * 1024 - SHM_QUEUE_SIZE * 2)  // 1MB-32KB
+
+#define SHM_DATA_SIZE               SHM_CH0_DATA_SIZE  // 兼容旧代码
 
 /* 队列配置 */
 #define DEFAULT_QUEUE_CAPACITY      256
@@ -85,37 +107,64 @@
 
 /* ==================== 全局状态 ==================== */
 
-typedef struct {
-    int fd_mem;                              // /dev/hvisor 文件描述符
+#define HYPERAMP_NUM_CHANNELS   3   /* ch1, ch2, ch3 */
+#define HYPERAMP_MAX_DATA_SEGS  8   /* 每 channel 最多 8 段 data region */
 
-    // 三个独立映射区域
-    volatile void *tx_map_base;              // tx queue mmap 返回的原始地址
+/* 单段 data region 的映射信息 */
+typedef struct {
+    uint64_t      phys_addr;   /* zone0 HPA（Linux 侧物理地址）*/
+    size_t        phys_size;
+    volatile void *map_base;   /* mmap 返回的原始地址 */
+    size_t         map_size;
+    volatile void *virt_addr;  /* 页对齐后的虚拟地址 */
+} HyperampDataSeg;
+
+typedef struct {
+    /* TX queue（Linux → seL4） */
+    volatile void *tx_map_base;
     size_t         tx_map_size;
     uint64_t       tx_phys_addr;
     size_t         tx_phys_size;
+    volatile HyperampShmQueue *tx_queue;
 
-    volatile void *rx_map_base;              // rx queue mmap 返回的原始地址
+    /* RX queue（seL4 → Linux） */
+    volatile void *rx_map_base;
     size_t         rx_map_size;
     uint64_t       rx_phys_addr;
     size_t         rx_phys_size;
+    volatile HyperampShmQueue *rx_queue;
 
-    volatile void *data_map_base;            // data region mmap 返回的原始地址
-    size_t         data_map_size;
-    uint64_t       data_phys_addr;
-    size_t         data_phys_size;
+    /* Data region（多段分散映射） */
+    HyperampDataSeg data_segs[HYPERAMP_MAX_DATA_SEGS];
+    int             data_seg_cnt;
+    size_t          data_total_size;  /* 所有段的总字节数 */
 
-    /* 兼容旧代码：shm_base / shm_size / phys_addr 指向 tx queue */
+    /* 兼容旧代码：指向第一段 data 的虚拟地址 */
+    volatile void  *data_region;
+    /* 兼容旧代码：单段物理地址（第一段） */
+    uint64_t        data_phys_addr;
+    size_t          data_phys_size;
+} HyperampChannel;
+
+typedef struct {
+    int fd_mem;                              // /dev/hvisor 文件描述符
+
+    HyperampChannel ch[HYPERAMP_NUM_CHANNELS]; // ch[0]=ch1, ch[1]=ch2, ch[2]=ch3
+
+    /* 当前活跃 channel（默认 0）*/
+    int active_ch;
+
+    /* 兼容旧代码：指向 active_ch 的字段 */
     volatile void *shm_base;
-    size_t shm_size;
-    uint64_t phys_addr;
+    size_t         shm_size;
+    uint64_t       phys_addr;
 
-    volatile HyperampShmQueue *tx_queue;     // Linux → seL4 发送队列
-    volatile HyperampShmQueue *rx_queue;     // seL4 → Linux 接收队列
-    volatile void *data_region;              // 共享数据区基址
+    volatile HyperampShmQueue *tx_queue;
+    volatile HyperampShmQueue *rx_queue;
+    volatile void             *data_region;
 
-    int initialized;                         // 初始化标志
+    int initialized;
 
-    // 统计信息
     uint32_t tx_count;
     uint32_t rx_count;
     uint32_t tx_errors;
@@ -124,71 +173,6 @@ typedef struct {
 
 static HyperampLinuxContext g_ctx = {0};
 
-
-// for parsing zone0 physical address (rx / tx / data region PA)
-#ifdef HYPERAMP_TEST_MAIN
-static void parse_global_addr(char *shm_json_path) {
-  FILE *fp = fopen(shm_json_path, "r");
-  if (!fp) {
-    printf("[Error] parse_global_addr: cannot open %s\n", shm_json_path);
-    while(1) {}
-  }
-  fseek(fp, 0, SEEK_END);
-  long fsize = ftell(fp);
-  fseek(fp, 0, SEEK_SET);
-  char *buf = malloc(fsize + 1);
-  if (!buf) { fclose(fp); printf("[Error] malloc failed\n"); while(1) {} }
-  fread(buf, 1, fsize, fp);
-  buf[fsize] = '\0';
-  fclose(fp);
-
-  /* JSON 格式为顶层数组，或 {"shm_regions": [...]} 对象 */
-  cJSON *root = cJSON_Parse(buf);
-  free(buf);
-  if (!root) {
-    printf("[Error] parse_global_addr: JSON parse failed\n");
-    while(1) {}
-  }
-
-  /* 兼容 {"shm_regions": [...]} 格式 */
-  cJSON *arr = root;
-  if (cJSON_IsObject(root)) {
-    cJSON *shm_regions = cJSON_GetObjectItem(root, "shm_regions");
-    if (shm_regions && cJSON_IsArray(shm_regions)) {
-      arr = shm_regions;
-    }
-  }
-
-  int n = cJSON_GetArraySize(arr);
-  for (int j = 0; j < n; j++) {
-    cJSON *region = cJSON_GetArrayItem(arr, j);
-    cJSON *flag_item = cJSON_GetObjectItem(region, "flag");
-    cJSON *z0_item   = cJSON_GetObjectItem(region, "zone0_ram_ipa");
-    cJSON *size_item = cJSON_GetObjectItem(region, "size");
-    if (!flag_item || !z0_item || !size_item) {
-      printf("[WARN] parse_global_addr: missing field in region %d, skipping\n", j);
-      continue;
-    }
-    char *region_flag        = flag_item->valuestring;
-    unsigned long long paddr = strtoull(z0_item->valuestring,   NULL, 16);
-    unsigned long long sz    = strtoull(size_item->valuestring, NULL, 16);
-    if (sz == 0) { printf("[WARN] size=0 for region %d\n", j); continue; }
-
-    if (!strcmp(region_flag, "sel4-tx-queue")) {
-      /* sel4-tx-queue = seL4 发送、Linux 接收，所以是 Linux 的 RX */
-      g_ctx.rx_phys_addr = paddr; g_ctx.rx_phys_size = sz;
-    } else if (!strcmp(region_flag, "sel4-rx-queue")) {
-      /* sel4-rx-queue = seL4 接收、Linux 发送，所以是 Linux 的 TX */
-      g_ctx.tx_phys_addr = paddr; g_ctx.tx_phys_size = sz;
-    } else if (!strcmp(region_flag, "sel4-data-region")) {
-      g_ctx.data_phys_addr = paddr; g_ctx.data_phys_size = sz;
-    } else {
-      printf("[WARN] parse_global_addr: unknown flag '%s', skipping\n", region_flag);
-    }
-  }
-  cJSON_Delete(root);
-}
-#endif /* HYPERAMP_TEST_MAIN */
 
 /* ==================== 私有函数 ==================== */
 
@@ -218,11 +202,11 @@ static volatile void *map_one_region(int fd, uint64_t phys_addr, size_t size,
 }
 
 /**
- * @brief 映射三个独立物理区域到用户空间
+ * @brief 映射全部 3 个 channel 的物理区域到用户空间（支持多段 data）
  */
 static int map_physical_memory(uint64_t phys_addr, size_t size)
 {
-    (void)phys_addr; (void)size; /* 参数保留用于兼容旧调用路径 */
+    (void)phys_addr; (void)size;
 
     g_ctx.fd_mem = open("/dev/hvisor", O_RDWR | O_SYNC);
     if (g_ctx.fd_mem < 0) {
@@ -230,69 +214,108 @@ static int map_physical_memory(uint64_t phys_addr, size_t size)
         return HYPERAMP_ERROR;
     }
 
-    /* --- TX queue --- */
-    g_ctx.tx_queue = (volatile HyperampShmQueue *)map_one_region(
-        g_ctx.fd_mem, g_ctx.tx_phys_addr, g_ctx.tx_phys_size,
-        &g_ctx.tx_map_base, &g_ctx.tx_map_size);
-    if (!g_ctx.tx_queue) goto err;
+    for (int c = 0; c < HYPERAMP_NUM_CHANNELS; c++) {
+        HyperampChannel *ch = &g_ctx.ch[c];
 
-    /* --- RX queue --- */
-    g_ctx.rx_queue = (volatile HyperampShmQueue *)map_one_region(
-        g_ctx.fd_mem, g_ctx.rx_phys_addr, g_ctx.rx_phys_size,
-        &g_ctx.rx_map_base, &g_ctx.rx_map_size);
-    if (!g_ctx.rx_queue) goto err;
+        /* TX queue */
+        ch->tx_queue = (volatile HyperampShmQueue *)map_one_region(
+            g_ctx.fd_mem, ch->tx_phys_addr, ch->tx_phys_size,
+            &ch->tx_map_base, &ch->tx_map_size);
+        if (!ch->tx_queue) goto err;
 
-    /* --- Data region --- */
-    g_ctx.data_region = map_one_region(
-        g_ctx.fd_mem, g_ctx.data_phys_addr, g_ctx.data_phys_size,
-        &g_ctx.data_map_base, &g_ctx.data_map_size);
-    if (!g_ctx.data_region) goto err;
+        /* RX queue */
+        ch->rx_queue = (volatile HyperampShmQueue *)map_one_region(
+            g_ctx.fd_mem, ch->rx_phys_addr, ch->rx_phys_size,
+            &ch->rx_map_base, &ch->rx_map_size);
+        if (!ch->rx_queue) goto err;
 
-    /* 兼容旧代码 */
-    g_ctx.shm_base  = (volatile void *)g_ctx.tx_queue;
-    g_ctx.shm_size  = g_ctx.tx_phys_size;
-    g_ctx.phys_addr = g_ctx.tx_phys_addr;
+        /* Data region：逐段 mmap */
+        ch->data_total_size = 0;
+        for (int s = 0; s < ch->data_seg_cnt; s++) {
+            HyperampDataSeg *seg = &ch->data_segs[s];
+            seg->virt_addr = map_one_region(
+                g_ctx.fd_mem, seg->phys_addr, seg->phys_size,
+                &seg->map_base, &seg->map_size);
+            if (!seg->virt_addr) goto err;
+            ch->data_total_size += seg->phys_size;
+        }
+        /* 兼容旧代码：指向第一段 */
+        ch->data_region    = (ch->data_seg_cnt > 0) ? ch->data_segs[0].virt_addr : NULL;
+        ch->data_phys_addr = (ch->data_seg_cnt > 0) ? ch->data_segs[0].phys_addr : 0;
+        ch->data_phys_size = ch->data_total_size;
 
-    printf("[HyperAMP] Physical memory mapped via /dev/hvisor (uncached):\n");
-    printf("[HyperAMP]   TX  Queue:    phys=0x%lx  virt=%p  size=%zu\n",
-           g_ctx.tx_phys_addr,   (void *)g_ctx.tx_queue,    g_ctx.tx_phys_size);
-    printf("[HyperAMP]   RX  Queue:    phys=0x%lx  virt=%p  size=%zu\n",
-           g_ctx.rx_phys_addr,   (void *)g_ctx.rx_queue,    g_ctx.rx_phys_size);
-    printf("[HyperAMP]   Data Region:  phys=0x%lx  virt=%p  size=%zu\n",
-           g_ctx.data_phys_addr, (void *)g_ctx.data_region, g_ctx.data_phys_size);
+        printf("[HyperAMP] ch%d: TX=%p(0x%lx) RX=%p(0x%lx) Data=%p(%zu bytes, %d segs)\n",
+               c + 1,
+               (void *)ch->tx_queue, ch->tx_phys_addr,
+               (void *)ch->rx_queue, ch->rx_phys_addr,
+               (void *)ch->data_region, ch->data_total_size, ch->data_seg_cnt);
+    }
+
+    /* 兼容旧代码：指向 active_ch */
+    {
+        HyperampChannel *ach = &g_ctx.ch[g_ctx.active_ch];
+        g_ctx.tx_queue    = ach->tx_queue;
+        g_ctx.rx_queue    = ach->rx_queue;
+        g_ctx.data_region = ach->data_region;
+        g_ctx.shm_base    = (volatile void *)ach->tx_queue;
+        g_ctx.shm_size    = ach->tx_phys_size;
+        g_ctx.phys_addr   = ach->tx_phys_addr;
+    }
 
     return HYPERAMP_OK;
 
 err:
-    if (g_ctx.tx_map_base)   { munmap((void *)g_ctx.tx_map_base,   g_ctx.tx_map_size);   g_ctx.tx_map_base   = NULL; }
-    if (g_ctx.rx_map_base)   { munmap((void *)g_ctx.rx_map_base,   g_ctx.rx_map_size);   g_ctx.rx_map_base   = NULL; }
-    if (g_ctx.data_map_base) { munmap((void *)g_ctx.data_map_base, g_ctx.data_map_size); g_ctx.data_map_base = NULL; }
+    for (int c = 0; c < HYPERAMP_NUM_CHANNELS; c++) {
+        HyperampChannel *ch = &g_ctx.ch[c];
+        if (ch->tx_map_base) {
+            munmap((void *)ch->tx_map_base, ch->tx_map_size);
+            ch->tx_map_base = NULL; ch->tx_map_size = 0; ch->tx_queue = NULL;
+        }
+        if (ch->rx_map_base) {
+            munmap((void *)ch->rx_map_base, ch->rx_map_size);
+            ch->rx_map_base = NULL; ch->rx_map_size = 0; ch->rx_queue = NULL;
+        }
+        for (int s = 0; s < ch->data_seg_cnt; s++) {
+            HyperampDataSeg *seg = &ch->data_segs[s];
+            if (seg->map_base) {
+                munmap((void *)seg->map_base, seg->map_size);
+                seg->map_base = NULL; seg->map_size = 0; seg->virt_addr = NULL;
+            }
+        }
+        ch->data_region = NULL;
+    }
     close(g_ctx.fd_mem);
     g_ctx.fd_mem = -1;
     return HYPERAMP_ERROR;
 }
 
 /**
- * @brief 取消三个独立区域的内存映射
+ * @brief 取消全部 3 个 channel 的内存映射
  */
 static void unmap_physical_memory(void)
 {
-    if (g_ctx.tx_map_base) {
-        munmap((void *)g_ctx.tx_map_base, g_ctx.tx_map_size);
-        g_ctx.tx_map_base = NULL;
-        g_ctx.tx_queue    = NULL;
+    for (int c = 0; c < HYPERAMP_NUM_CHANNELS; c++) {
+        HyperampChannel *ch = &g_ctx.ch[c];
+        if (ch->tx_map_base) {
+            munmap((void *)ch->tx_map_base, ch->tx_map_size);
+            ch->tx_map_base = NULL; ch->tx_map_size = 0; ch->tx_queue = NULL;
+        }
+        if (ch->rx_map_base) {
+            munmap((void *)ch->rx_map_base, ch->rx_map_size);
+            ch->rx_map_base = NULL; ch->rx_map_size = 0; ch->rx_queue = NULL;
+        }
+        for (int s = 0; s < ch->data_seg_cnt; s++) {
+            HyperampDataSeg *seg = &ch->data_segs[s];
+            if (seg->map_base) {
+                munmap((void *)seg->map_base, seg->map_size);
+                seg->map_base = NULL; seg->map_size = 0; seg->virt_addr = NULL;
+            }
+        }
+        ch->data_region = NULL; ch->data_phys_size = 0; ch->data_total_size = 0;
     }
-    if (g_ctx.rx_map_base) {
-        munmap((void *)g_ctx.rx_map_base, g_ctx.rx_map_size);
-        g_ctx.rx_map_base = NULL;
-        g_ctx.rx_queue    = NULL;
-    }
-    if (g_ctx.data_map_base) {
-        munmap((void *)g_ctx.data_map_base, g_ctx.data_map_size);
-        g_ctx.data_map_base = NULL;
-        g_ctx.data_region   = NULL;
-    }
-    g_ctx.shm_base = NULL;
+    g_ctx.tx_queue = NULL; g_ctx.rx_queue = NULL;
+    g_ctx.data_region = NULL; g_ctx.shm_base = NULL;
+    g_ctx.shm_size = 0; g_ctx.phys_addr = 0;
 
     if (g_ctx.fd_mem >= 0) {
         close(g_ctx.fd_mem);
@@ -331,105 +354,98 @@ int hyperamp_linux_init(uint64_t phys_addr, int is_creator)
         return HYPERAMP_ERROR;
     }
 
-    printf("[HyperAMP] Memory layout:\n");
+    printf("[HyperAMP] Memory layout (active ch%d):\n", g_ctx.active_ch + 1);
     printf("[HyperAMP]   TX Queue:    %p (phys: 0x%lx)\n",
-           g_ctx.tx_queue,    g_ctx.tx_phys_addr);
+           g_ctx.tx_queue,    g_ctx.ch[g_ctx.active_ch].tx_phys_addr);
     printf("[HyperAMP]   RX Queue:    %p (phys: 0x%lx)\n",
-           g_ctx.rx_queue,    g_ctx.rx_phys_addr);
+           g_ctx.rx_queue,    g_ctx.ch[g_ctx.active_ch].rx_phys_addr);
     printf("[HyperAMP]   Data Region: %p (phys: 0x%lx, size: %zu bytes)\n",
-           g_ctx.data_region, g_ctx.data_phys_addr, g_ctx.data_phys_size);
+           g_ctx.data_region, g_ctx.ch[g_ctx.active_ch].data_phys_addr,
+           g_ctx.ch[g_ctx.active_ch].data_phys_size);
     
-    // 初始化队列配置
-    HyperampQueueConfig tx_config = {
-        .map_mode = HYPERAMP_MAP_MODE_CONTIGUOUS_BOTH,
-        .capacity = DEFAULT_QUEUE_CAPACITY,
-        .block_size = DEFAULT_BLOCK_SIZE,
-        .phy_addr = phys_addr,  // TX Queue 起始地址
-        .virt_addr = (uint64_t)g_ctx.tx_queue,
-    };
-    
-    HyperampQueueConfig rx_config = {
-        .map_mode = HYPERAMP_MAP_MODE_CONTIGUOUS_BOTH,
-        .capacity = DEFAULT_QUEUE_CAPACITY,
-        .block_size = DEFAULT_BLOCK_SIZE,
-        .phy_addr = phys_addr + SHM_QUEUE_SIZE,  // RX Queue 地址
-        .virt_addr = (uint64_t)g_ctx.rx_queue,
-    };
-    
-    // Linux 端是 TX 队列的创建者，seL4 端是 RX 队列的创建者
-    // 但为了简化，这里让 Linux 端初始化两个队列
+    // 初始化队列配置 —— 使用从 JSON 或 fallback 填充的物理地址
+
     if (is_creator) {
-        printf("[HyperAMP] Initializing TX queue......\n");
-        if (hyperamp_queue_init(g_ctx.tx_queue, &tx_config, 1) != HYPERAMP_OK) {
-            printf("[HyperAMP] Failed to init TX queue\n");
-            unmap_physical_memory();
-            return HYPERAMP_ERROR;
+        /* 初始化全部 3 个 channel 的队列 */
+        for (int c = 0; c < HYPERAMP_NUM_CHANNELS; c++) {
+            HyperampChannel *ch = &g_ctx.ch[c];
+
+            HyperampQueueConfig tx_cfg = {
+                .map_mode   = HYPERAMP_MAP_MODE_CONTIGUOUS_BOTH,
+                .capacity   = DEFAULT_QUEUE_CAPACITY,
+                .block_size = DEFAULT_BLOCK_SIZE,
+                .phy_addr   = ch->tx_phys_addr,
+                .virt_addr  = (uint64_t)ch->tx_queue,
+            };
+            HyperampQueueConfig rx_cfg = {
+                .map_mode   = HYPERAMP_MAP_MODE_CONTIGUOUS_BOTH,
+                .capacity   = DEFAULT_QUEUE_CAPACITY,
+                .block_size = DEFAULT_BLOCK_SIZE,
+                .phy_addr   = ch->rx_phys_addr,
+                .virt_addr  = (uint64_t)ch->rx_queue,
+            };
+
+            printf("[HyperAMP] Initializing ch%d TX queue...\n", c + 1);
+            if (hyperamp_queue_init(ch->tx_queue, &tx_cfg, 1) != HYPERAMP_OK) {
+                printf("[HyperAMP] Failed to init ch%d TX queue\n", c + 1);
+                unmap_physical_memory();
+                return HYPERAMP_ERROR;
+            }
+            printf("[HyperAMP] Initializing ch%d RX queue...\n", c + 1);
+            if (hyperamp_queue_init(ch->rx_queue, &rx_cfg, 1) != HYPERAMP_OK) {
+                printf("[HyperAMP] Failed to init ch%d RX queue\n", c + 1);
+                unmap_physical_memory();
+                return HYPERAMP_ERROR;
+            }
+            printf("[HyperAMP] Clearing ch%d data region...\n", c + 1);
+            hyperamp_safe_memset(ch->data_region, 0, ch->data_phys_size);
         }
-        
-        printf("[HyperAMP] Initializing RX queue...\n");
-        if (hyperamp_queue_init(g_ctx.rx_queue, &rx_config, 1) != HYPERAMP_OK) {
-            printf("[HyperAMP] Failed to init RX queue\n");
-            unmap_physical_memory();
-            return HYPERAMP_ERROR;
-        }
-        
-        // 清空数据区
-        printf("[HyperAMP] Clearing data region...\n");
-        hyperamp_safe_memset(g_ctx.data_region, 0, SHM_DATA_SIZE);
     } else {
-        // 等待队列被初始化 (检查 capacity 字段而不是 magic,因为 magic 超出 4KB 边界)
-        printf("[HyperAMP] Connecting to existing queues (no wait mode)...\n");
-        
-        /* 重要：清理 CPU 数据缓存，确保读取到 seL4 写入的最新数据 */
-        CACHE_INVALIDATE(g_ctx.tx_queue);
-        CACHE_INVALIDATE(g_ctx.rx_queue);
-        
-        // 打印原始数据以调试
-        printf("[HyperAMP] DEBUG: Raw TX Queue bytes (first 32):\n[HyperAMP]   ");
-        volatile uint8_t *tx_bytes = (volatile uint8_t *)g_ctx.tx_queue;
-        for (int i = 0; i < 32; i++) {
-            printf("%02x ", tx_bytes[i]);
-            if ((i + 1) % 16 == 0 && i < 31) printf("\n[HyperAMP]   ");
-        }
-        printf("\n");
-        
-        printf("[HyperAMP] DEBUG: Raw RX Queue bytes (first 32):\n[HyperAMP]   ");
-        volatile uint8_t *rx_bytes = (volatile uint8_t *)g_ctx.rx_queue;
-        for (int i = 0; i < 32; i++) {
-            printf("%02x ", rx_bytes[i]);
-            if ((i + 1) % 16 == 0 && i < 31) printf("\n[HyperAMP]   ");
-        }
-        printf("\n");
-        
-        // 直接读取 capacity 字段
-        uint16_t tx_cap = hyperamp_safe_read_u16(g_ctx.tx_queue, offsetof(HyperampShmQueue, capacity));
-        uint16_t rx_cap = hyperamp_safe_read_u16(g_ctx.rx_queue, offsetof(HyperampShmQueue, capacity));
-        
-        printf("[HyperAMP] TX capacity=%u (expected 256), RX capacity=%u (expected 256)\n", tx_cap, rx_cap);
-        
-        // 调试：打印队列头部的原始字节
-        printf("[HyperAMP] DEBUG: TX Queue raw bytes at offset 0-15:\n");
-        printf("[HyperAMP]   ");
-        for (int i = 0; i < 16; i++) {
-            printf("%02x ", ((volatile uint8_t *)g_ctx.tx_queue)[i]);
-        }
-        printf("\n");
-        
-        printf("[HyperAMP] DEBUG: RX Queue raw bytes at offset 0-15:\n");
-        printf("[HyperAMP]   ");
-        for (int i = 0; i < 16; i++) {
-            printf("%02x ", ((volatile uint8_t *)g_ctx.rx_queue)[i]);
-        }
-        printf("\n");
-        
-        if (tx_cap == 0 && rx_cap == 0) {
-            printf("[HyperAMP] INFO: Queues not yet initialized by seL4\n");
-            printf("[HyperAMP] Will wait for seL4 to initialize them...\n");
-            // 不返回错误，让后端模拟器继续轮询
-        } else if (tx_cap == 256 && rx_cap == 256) {
-            printf("[HyperAMP] ✓ Found initialized queue(s), ready for communication\n");
-        } else {
-            printf("[HyperAMP] WARNING: Unexpected capacity values (may indicate wrong address or corrupted memory)\n");
+        /* CONNECTOR 模式：seL4 已初始化队列，Linux 侧以 is_creator=0 注册自己的虚拟地址，
+         * 并对全部 3 个 channel 执行 hyperamp_queue_init(queue, cfg, 0)。 */
+        printf("[HyperAMP] Connecting to existing queues...\n");
+
+        for (int c = 0; c < HYPERAMP_NUM_CHANNELS; c++) {
+            HyperampChannel *ch = &g_ctx.ch[c];
+
+            /* 失效缓存，确保读到 seL4 写入的最新数据 */
+            CACHE_INVALIDATE(ch->tx_queue);
+            CACHE_INVALIDATE(ch->rx_queue);
+
+            uint16_t tx_cap = hyperamp_safe_read_u16(ch->tx_queue,
+                                  offsetof(HyperampShmQueue, capacity));
+            uint16_t rx_cap = hyperamp_safe_read_u16(ch->rx_queue,
+                                  offsetof(HyperampShmQueue, capacity));
+            printf("[HyperAMP] ch%d: TX capacity=%u, RX capacity=%u\n",
+                   c + 1, tx_cap, rx_cap);
+
+            /* 注册 Linux 侧虚拟地址（写入 virt_addr2），不重置队列状态 */
+            HyperampQueueConfig tx_cfg = {
+                .map_mode   = HYPERAMP_MAP_MODE_CONTIGUOUS_BOTH,
+                .capacity   = DEFAULT_QUEUE_CAPACITY,
+                .block_size = DEFAULT_BLOCK_SIZE,
+                .phy_addr   = ch->tx_phys_addr,
+                .virt_addr  = (uint64_t)ch->tx_queue,
+            };
+            HyperampQueueConfig rx_cfg = {
+                .map_mode   = HYPERAMP_MAP_MODE_CONTIGUOUS_BOTH,
+                .capacity   = DEFAULT_QUEUE_CAPACITY,
+                .block_size = DEFAULT_BLOCK_SIZE,
+                .phy_addr   = ch->rx_phys_addr,
+                .virt_addr  = (uint64_t)ch->rx_queue,
+            };
+
+            if (hyperamp_queue_init(ch->tx_queue, &tx_cfg, 0) != HYPERAMP_OK) {
+                printf("[HyperAMP] Failed to connect ch%d TX queue\n", c + 1);
+                unmap_physical_memory();
+                return HYPERAMP_ERROR;
+            }
+            if (hyperamp_queue_init(ch->rx_queue, &rx_cfg, 0) != HYPERAMP_OK) {
+                printf("[HyperAMP] Failed to connect ch%d RX queue\n", c + 1);
+                unmap_physical_memory();
+                return HYPERAMP_ERROR;
+            }
+            printf("[HyperAMP] ch%d connected\n", c + 1);
         }
     }
     
@@ -490,89 +506,92 @@ void hyperamp_linux_cleanup(void)
  * @param payload_len 载荷长度
  * @return HYPERAMP_OK 成功, HYPERAMP_ERROR 失败
  */
-int hyperamp_linux_send(uint8_t msg_type, 
-                        uint16_t frontend_sess_id,
-                        uint16_t backend_sess_id,
-                        const void *payload, 
-                        uint16_t payload_len)
+/**
+ * @brief 向指定 channel 发送消息（内部实现）
+ */
+static int _send_on_ch(int ch_idx,
+                       uint8_t msg_type,
+                       uint16_t frontend_sess_id,
+                       uint16_t backend_sess_id,
+                       const void *payload,
+                       uint16_t payload_len)
 {
-    static int queue_not_ready_printed = 0;  // 只打印一次"队列未就绪"
-    static int queue_ready_printed = 0;      // 只打印一次"队列已就绪"
-    
-    if (!g_ctx.initialized) {
-        printf("[HyperAMP] Not initialized\n");
+    if (!g_ctx.initialized || ch_idx < 0 || ch_idx >= HYPERAMP_NUM_CHANNELS)
+        return HYPERAMP_ERROR;
+
+    HyperampChannel *ch = &g_ctx.ch[ch_idx];
+
+    CACHE_INVALIDATE(ch->tx_queue);
+    uint16_t cap = hyperamp_safe_read_u16(ch->tx_queue, offsetof(HyperampShmQueue, capacity));
+    if (cap == 0) {
+        printf("[HyperAMP] ch%d TX not ready\n", ch_idx + 1);
         return HYPERAMP_ERROR;
     }
-    
-    /* 关键：发送前失效 TX Queue 缓存，确保读取到最新的队列状态 */
-    CACHE_INVALIDATE(g_ctx.tx_queue);
-    
-    // 检查队列是否已被 seL4 初始化（避免访问未初始化队列导致段错误）
-    uint16_t tx_capacity = hyperamp_safe_read_u16(g_ctx.tx_queue, offsetof(HyperampShmQueue, capacity));
-    
-    if (tx_capacity == 0) {
-        // TX 队列未初始化，说明 seL4 还未启动，不发送消息
-        if (!queue_not_ready_printed) {
-            printf("[HyperAMP] TX Queue not initialized yet (capacity=0), waiting for seL4...\n");
-            queue_not_ready_printed = 1;
-        }
-        return HYPERAMP_ERROR;
-    }
-    
-    // 队列已就绪，打印一次
-    if (!queue_ready_printed) {
-        // 关键：检测到队列就绪后，再次强制失效 cache，确保读取最新的队列数据
-        CACHE_INVALIDATE(g_ctx.tx_queue);
-        
-        // 重新读取 capacity，确保是正确的值
-        tx_capacity = hyperamp_safe_read_u16(g_ctx.tx_queue, offsetof(HyperampShmQueue, capacity));
-        
-        printf("[HyperAMP] ✓ TX Queue initialized (capacity=%u), ready to send!\n", tx_capacity);
-        queue_ready_printed = 1;
-    }
-    
+
     if (payload_len > HYPERAMP_MSG_MAX_SIZE) {
-        printf("[HyperAMP] Payload too large: %u > %u\n", payload_len, HYPERAMP_MSG_MAX_SIZE);
+        printf("[HyperAMP] ch%d payload too large: %u\n", ch_idx + 1, payload_len);
         return HYPERAMP_ERROR;
     }
-    
-    // 准备消息缓冲区
+
     uint8_t msg_buf[HYPERAMP_MSG_HDR_PLUS_MAX_SIZE];
     HyperampMsgHeader *hdr = (HyperampMsgHeader *)msg_buf;
-    hdr->version = 1;
-    hdr->proxy_msg_type = msg_type;
+    hdr->version          = 1;
+    hdr->proxy_msg_type   = msg_type;
     hdr->frontend_sess_id = frontend_sess_id;
-    hdr->backend_sess_id = backend_sess_id;
-    hdr->payload_len = payload_len;
-    
-    // 复制载荷（使用逐字节复制，避免 memcpy 的 SIMD 优化在非缓存内存触发总线错误）
+    hdr->backend_sess_id  = backend_sess_id;
+    hdr->payload_len      = payload_len;
+
     if (payload && payload_len > 0) {
-        uint8_t *dst = msg_buf + sizeof(HyperampMsgHeader);
         const uint8_t *src = (const uint8_t *)payload;
-        for (uint16_t i = 0; i < payload_len; i++) {
-            dst[i] = src[i];
-        }
+        uint8_t *dst = msg_buf + sizeof(HyperampMsgHeader);
+        for (uint16_t i = 0; i < payload_len; i++) dst[i] = src[i];
     }
-    
+
     size_t total_len = sizeof(HyperampMsgHeader) + payload_len;
-    
-    // 入队
-    // 重要：数据区使用独立的共享内存区域，而不是队列控制块后面
-    // TX Queue 和 RX Queue 只存储队列元数据，实际数据存储在 data_region
-    volatile void *tx_data_base = g_ctx.data_region;  // 共享数据区
-    
-    int ret = hyperamp_queue_enqueue(g_ctx.tx_queue, ZONE_ID_LINUX, 
-                                      msg_buf, total_len, tx_data_base);
+    int ret = hyperamp_queue_enqueue(ch->tx_queue, ZONE_ID_LINUX,
+                                     msg_buf, total_len,
+                                     ch->data_region);
     if (ret == HYPERAMP_OK) {
         g_ctx.tx_count++;
-        printf("[HyperAMP] TX: type=%u, sess=%u/%u, len=%u (total: %u)\n",
-               msg_type, frontend_sess_id, backend_sess_id, payload_len, g_ctx.tx_count);
+        printf("[HyperAMP] ch%d TX: type=%u sess=%u/%u len=%u\n",
+               ch_idx + 1, msg_type, frontend_sess_id, backend_sess_id, payload_len);
     } else {
         g_ctx.tx_errors++;
-        printf("[HyperAMP] TX failed: queue full? (errors: %u)\n", g_ctx.tx_errors);
+        printf("[HyperAMP] ch%d TX failed (queue full?)\n", ch_idx + 1);
     }
-    
     return ret;
+}
+
+/**
+ * @brief 发送消息到 active channel (兼容旧接口)
+ */
+int hyperamp_linux_send(uint8_t msg_type,
+                        uint16_t frontend_sess_id,
+                        uint16_t backend_sess_id,
+                        const void *payload,
+                        uint16_t payload_len)
+{
+    return _send_on_ch(g_ctx.active_ch, msg_type, frontend_sess_id,
+                       backend_sess_id, payload, payload_len);
+}
+
+/**
+ * @brief 同时向全部 3 个 channel 广播消息
+ * @return HYPERAMP_OK 若至少一个 channel 成功，否则 HYPERAMP_ERROR
+ */
+int hyperamp_linux_send_all(uint8_t msg_type,
+                            uint16_t frontend_sess_id,
+                            uint16_t backend_sess_id,
+                            const void *payload,
+                            uint16_t payload_len)
+{
+    int ok = 0;
+    for (int c = 0; c < HYPERAMP_NUM_CHANNELS; c++) {
+        if (_send_on_ch(c, msg_type, frontend_sess_id, backend_sess_id,
+                        payload, payload_len) == HYPERAMP_OK)
+            ok++;
+    }
+    return ok > 0 ? HYPERAMP_OK : HYPERAMP_ERROR;
 }
 
 /**
@@ -698,16 +717,19 @@ int hyperamp_linux_send_data(uint16_t session_id, const void *data, uint16_t dat
     return hyperamp_linux_send(HYPERAMP_MSG_TYPE_DATA, session_id, 0, data, data_len);
 }
 
-/**
- * @brief 发送服务调用消息 (HyperAMP Service Call)
- * @param service_id 服务ID (0=Echo, 1=Encrypt, 2=Decrypt)
- * @param data 请求数据
- * @param data_len 数据长度
- */
+int hyperamp_linux_send_data_all(uint16_t session_id, const void *data, uint16_t data_len)
+{
+    return hyperamp_linux_send_all(HYPERAMP_MSG_TYPE_DATA, session_id, 0, data, data_len);
+}
+
 int hyperamp_linux_call_service(uint16_t service_id, const void *data, uint16_t data_len)
 {
-    // 使用 HYPERAMP_MSG_TYPE_SERVICE 类型，frontend_sess_id 存服务ID
     return hyperamp_linux_send(HYPERAMP_MSG_TYPE_SERVICE, service_id, 0, data, data_len);
+}
+
+int hyperamp_linux_call_service_all(uint16_t service_id, const void *data, uint16_t data_len)
+{
+    return hyperamp_linux_send_all(HYPERAMP_MSG_TYPE_SERVICE, service_id, 0, data, data_len);
 }
 
 /**
@@ -798,12 +820,122 @@ void hyperamp_linux_get_status(void)
 
 #ifdef HYPERAMP_TEST_MAIN
 
+/*
+ * parse_global_addr - 解析 zone_shm.json（shm_regions 格式），
+ * 填充 g_ctx.ch[0..2] 的物理地址字段。
+ *
+ * JSON 格式：
+ *   { "shm_regions": [
+ *       { "flag": "sel4-tx-queue-ch1",
+ *         "zone0_ram_ipa": "0x...",   <- Linux 侧 HPA，用于 mmap
+ *         "zonex_ram_ipa": "0x...",   <- seL4 侧 IPA（仅记录，不用于 mmap）
+ *         "size": "0x..." }, ... ] }
+ *
+ * 命名约定（从 seL4 视角）：
+ *   sel4-tx-queue-chN  = seL4 发送 / Linux 接收 → ch[N-1].rx_*
+ *   sel4-rx-queue-chN  = seL4 接收 / Linux 发送 → ch[N-1].tx_*
+ *   sel4-data-region-chN                         → ch[N-1].data_segs[]（多段）
+ */
+static void parse_global_addr(char *json_path) {
+    FILE *fp = fopen(json_path, "r");
+    if (!fp) {
+        printf("[Error] parse_global_addr: cannot open %s\n", json_path);
+        while(1) {}
+    }
+    fseek(fp, 0, SEEK_END);
+    long fsize = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    char *buf = malloc(fsize + 1);
+    if (!buf) { fclose(fp); printf("[Error] malloc failed\n"); while(1) {} }
+    fread(buf, 1, fsize, fp);
+    buf[fsize] = '\0';
+    fclose(fp);
+
+    cJSON *root = cJSON_Parse(buf);
+    free(buf);
+    if (!root) {
+        printf("[Error] parse_global_addr: JSON parse failed\n");
+        while(1) {}
+    }
+
+    cJSON *regions = cJSON_GetObjectItem(root, "shm_regions");
+    if (!regions || !cJSON_IsArray(regions)) {
+        printf("[Error] parse_global_addr: 'shm_regions' not found\n");
+        cJSON_Delete(root);
+        while(1) {}
+    }
+
+    int found_tx[HYPERAMP_NUM_CHANNELS]   = {0};
+    int found_rx[HYPERAMP_NUM_CHANNELS]   = {0};
+    int found_data[HYPERAMP_NUM_CHANNELS] = {0};
+
+    int n = cJSON_GetArraySize(regions);
+    for (int i = 0; i < n; i++) {
+        cJSON *r      = cJSON_GetArrayItem(regions, i);
+        cJSON *flag_j = cJSON_GetObjectItem(r, "flag");
+        cJSON *z0_j   = cJSON_GetObjectItem(r, "zone0_ram_ipa");
+        cJSON *sz_j   = cJSON_GetObjectItem(r, "size");
+        if (!flag_j || !z0_j || !sz_j) continue;
+
+        const char *flag = flag_j->valuestring;
+        uint64_t paddr = strtoull(z0_j->valuestring, NULL, 16);
+        uint64_t sz    = strtoull(sz_j->valuestring,  NULL, 16);
+        if (sz == 0) continue;
+
+        /* 匹配 channel 编号和类型 */
+        int ch_idx = -1;
+        if      (strstr(flag, "ch1")) ch_idx = 0;
+        else if (strstr(flag, "ch2")) ch_idx = 1;
+        else if (strstr(flag, "ch3")) ch_idx = 2;
+        if (ch_idx < 0) continue;
+
+        HyperampChannel *ch = &g_ctx.ch[ch_idx];
+
+        if (strstr(flag, "tx-queue")) {
+            /* sel4-tx-queue = seL4 发送 / Linux 接收 → rx_phys_addr */
+            ch->rx_phys_addr = paddr;
+            ch->rx_phys_size = sz;
+            found_rx[ch_idx] = 1;
+        } else if (strstr(flag, "rx-queue")) {
+            /* sel4-rx-queue = seL4 接收 / Linux 发送 → tx_phys_addr */
+            ch->tx_phys_addr = paddr;
+            ch->tx_phys_size = sz;
+            found_tx[ch_idx] = 1;
+        } else if (strstr(flag, "data-region")) {
+            int s = ch->data_seg_cnt;
+            if (s >= HYPERAMP_MAX_DATA_SEGS) {
+                printf("[Warn] ch%d: too many data segs, skip 0x%lx\n", ch_idx+1, paddr);
+                continue;
+            }
+            ch->data_segs[s].phys_addr = paddr;
+            ch->data_segs[s].phys_size = sz;
+            ch->data_seg_cnt++;
+            found_data[ch_idx] = 1;
+        }
+    }
+    cJSON_Delete(root);
+
+    for (int c = 0; c < HYPERAMP_NUM_CHANNELS; c++) {
+        HyperampChannel *ch = &g_ctx.ch[c];
+        printf("[Info] ch%d: TX=0x%lx(%zu) RX=0x%lx(%zu) data_segs=%d\n",
+               c+1, ch->tx_phys_addr, ch->tx_phys_size,
+               ch->rx_phys_addr, ch->rx_phys_size, ch->data_seg_cnt);
+        if (!found_tx[c] || !found_rx[c] || !found_data[c]) {
+            printf("[Error] ch%d missing regions (tx=%d rx=%d data=%d)\n",
+                   c+1, found_tx[c], found_rx[c], found_data[c]);
+            while(1) {}
+        }
+    }
+}
+
 static void print_usage(const char *prog)
 {
     printf("Usage: %s [options]\n", prog);
     printf("Options:\n");
     printf("  -c          Create/initialize queues (default: connect to existing)\n");
+    printf("  -j FILE     SHM JSON config path (zone_shm.json)\n");
     printf("  -a ADDR     Physical address in hex (default: 0x%lx)\n", SHM_START_PADDR);
+    printf("  -C CH       Target channel: 1, 2, 3, or 'all' (default: 1)\n");
     printf("  -s MSG      Send a test message (Data type)\n");
     printf("  -e MSG      Request Encryption Service (ID 1)\n");
     printf("  -d MSG      Request Decryption Service (ID 2)\n");
@@ -813,6 +945,10 @@ static void print_usage(const char *prog)
     printf("  -r          Receive messages\n");
     printf("  -t          Run interactive test\n");
     printf("  -h          Show this help\n");
+    printf("\nChannel Examples:\n");
+    printf("  Send to CH1 only:  %s -j cfg.json -C 1 -s hello\n", prog);
+    printf("  Send to CH2 only:  %s -j cfg.json -C 2 -s hello\n", prog);
+    printf("  Broadcast all:     %s -j cfg.json -C all -s hello\n", prog);
     printf("\nFile Input:\n");
     printf("  Use @filename to read data from file, e.g.:\n");
     printf("    %s -e @plaintext.txt -o encrypted.bin -w\n", prog);
@@ -1014,9 +1150,11 @@ int main(int argc, char *argv[])
     char *shm_json_path = NULL;  // shm JSON 配置路径
     uint8_t *file_data = NULL;  // 文件数据
     size_t file_data_len = 0;
+    /* -1 = broadcast all, 0/1/2 = ch1/ch2/ch3 (0-based) */
+    int target_ch = 0;  // 默认 CH1
 
     int opt;
-    while ((opt = getopt(argc, argv, "ca:s:e:d:p:o:wrthBS:Vj:")) != -1) {
+    while ((opt = getopt(argc, argv, "ca:s:e:d:p:o:wrthBS:Vj:C:")) != -1) {
         switch (opt) {
             case 'c':       // Create/initialize queues
                 is_creator = 1;
@@ -1026,6 +1164,19 @@ int main(int argc, char *argv[])
                 break;
             case 'j':       // SHM JSON config path
                 shm_json_path = optarg;
+                break;
+            case 'C':       // Target channel
+                if (strcmp(optarg, "all") == 0) {
+                    target_ch = -1;
+                } else {
+                    int ch = atoi(optarg);
+                    if (ch < 1 || ch > HYPERAMP_NUM_CHANNELS) {
+                        printf("Invalid channel: %s (use 1-%d or 'all')\n",
+                               optarg, HYPERAMP_NUM_CHANNELS);
+                        return 1;
+                    }
+                    target_ch = ch - 1;  /* 转为 0-based */
+                }
                 break;
             case 's':       // Send
                 do_send = 1;
@@ -1083,23 +1234,25 @@ int main(int argc, char *argv[])
     if (shm_json_path) {
         parse_global_addr(shm_json_path);
     } else {
-#if defined(__loongarch__) || defined(__loongarch64) || defined(LOONGARCH64)
-        fprintf(stderr, "Error: LoongArch platform requires -j <shm_json_path> to be specified.\n");
-        print_usage(argv[0]);
-        return 1;
-#else
-        // 兼容旧的 -a 参数：假定连续布局
-        uint64_t base = phys_addr ? phys_addr : SHM_START_PADDR;
-        g_ctx.rx_phys_addr   = base;
-        g_ctx.rx_phys_size   = SHM_QUEUE_SIZE;
-        g_ctx.tx_phys_addr   = base + SHM_QUEUE_SIZE;
-        g_ctx.tx_phys_size   = SHM_QUEUE_SIZE;
-        g_ctx.data_phys_addr = base + 2 * SHM_QUEUE_SIZE;
-        g_ctx.data_phys_size = SHM_DATA_SIZE;
-#endif
+        // 兼容 -a 参数：根据通道基地址自动计算，填充全部 3 个 channel
+        static const uint64_t ch_tx[HYPERAMP_NUM_CHANNELS]   = { SHM_CH0_TX_PADDR,   SHM_CH1_TX_PADDR,   SHM_CH2_TX_PADDR   };
+        static const uint64_t ch_rx[HYPERAMP_NUM_CHANNELS]   = { SHM_CH0_RX_PADDR,   SHM_CH1_RX_PADDR,   SHM_CH2_RX_PADDR   };
+        static const uint64_t ch_data[HYPERAMP_NUM_CHANNELS] = { SHM_CH0_DATA_PADDR, SHM_CH1_DATA_PADDR, SHM_CH2_DATA_PADDR };
+        static const size_t   ch_dsz[HYPERAMP_NUM_CHANNELS]  = { SHM_CH0_DATA_SIZE,  SHM_CH1_DATA_SIZE,  SHM_CH2_DATA_SIZE  };
+
+        for (int c = 0; c < HYPERAMP_NUM_CHANNELS; c++) {
+            /* -a 只覆盖 CH0 的 TX 起始地址，其余保持默认 */
+            g_ctx.ch[c].tx_phys_addr   = (c == 0 && phys_addr) ? phys_addr          : ch_tx[c];
+            g_ctx.ch[c].rx_phys_addr   = (c == 0 && phys_addr) ? phys_addr + SHM_QUEUE_SIZE : ch_rx[c];
+            g_ctx.ch[c].data_phys_addr = (c == 0 && phys_addr) ? phys_addr + 2 * SHM_QUEUE_SIZE : ch_data[c];
+            g_ctx.ch[c].tx_phys_size   = SHM_QUEUE_SIZE;
+            g_ctx.ch[c].rx_phys_size   = SHM_QUEUE_SIZE;
+            g_ctx.ch[c].data_phys_size = ch_dsz[c];
+        }
     }
 
     // 初始化
+    if (target_ch >= 0) g_ctx.active_ch = target_ch;
     if (hyperamp_linux_init(phys_addr, is_creator) != HYPERAMP_OK) {
         printf("Failed to initialize HyperAMP\n");
         return 1;
@@ -1231,8 +1384,13 @@ int main(int argc, char *argv[])
                 }
             } else {
                 // === Normal Message Mode ===
-                printf("\nCalling Service ID %d with %zu bytes\n", service_call_id, data_len);
-                if (hyperamp_linux_call_service(service_call_id, data_to_send, data_len) == HYPERAMP_OK) {
+                printf("\nCalling Service ID %d with %zu bytes (ch: %s)\n",
+                       service_call_id, data_len,
+                       target_ch < 0 ? "all" : (char[4]){(char)('1'+target_ch),0});
+                int send_ret = (target_ch < 0)
+                    ? hyperamp_linux_call_service_all(service_call_id, data_to_send, data_len)
+                    : hyperamp_linux_call_service(service_call_id, data_to_send, data_len);
+                if (send_ret == HYPERAMP_OK) {
                     printf("Service request sent successfully\n");
                     
                     // 如果指定了 -w 或 -o，等待响应
@@ -1279,8 +1437,12 @@ int main(int argc, char *argv[])
                 }
             }
         } else {
-            printf("\nSending Data message: %zu bytes\n", data_len);
-            if (hyperamp_linux_send_data(1, data_to_send, data_len) == HYPERAMP_OK) {
+            printf("\nSending Data message: %zu bytes (ch: %s)\n",
+                   data_len, target_ch < 0 ? "all" : (char[4]){(char)('1'+target_ch),0});
+            int send_ret = (target_ch < 0)
+                ? hyperamp_linux_send_data_all(1, data_to_send, data_len)
+                : hyperamp_linux_send_data(1, data_to_send, data_len);
+            if (send_ret == HYPERAMP_OK) {
                 printf("Message sent successfully\n");
             } else {
                 printf("Failed to send message\n");

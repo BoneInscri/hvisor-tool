@@ -525,12 +525,32 @@ static int hvisor_map(struct file *filp, struct vm_area_struct *vma) {
     } else {
         size_t size = vma->vm_end - vma->vm_start;
         // TODO: add check for non root memory region.
-        // memremap(0x50000000, 0x30000000, MEMREMAP_WB);
         // vm_pgoff is the physical page number.
-        // if (!is_reserved_memory(vma->vm_pgoff << PAGE_SHIFT, size)) {
-        //     pr_err("The physical address to be mapped is not within the
-        //     reserved memory\n"); return -EFAULT;
-        // }
+
+#ifdef LOONGARCH64
+        // HyperAMP 3通道内存布局 (LoongArch, 页大小 16KB = 0x4000):
+        // CH0: TX=0xC0000000(16KB), RX=0xC0004000(16KB), Data=0xC0008000(~2MB-32KB)
+        // CH1: TX=0xC0200000(16KB), RX=0xC0204000(16KB), Data=0xC0208000(~2MB-32KB)
+        // CH2: TX=0xC0400000(16KB), RX=0xC0404000(16KB), Data=0xC0408000(~2MB-32KB)
+        unsigned long phys_addr = vma->vm_pgoff << PAGE_SHIFT;
+
+        // Queue 控制块：保持 Cached（LoongArch ll/sc 需要 cached 内存）
+        if ((phys_addr >= 0xC0000000UL && phys_addr < 0xC0008000UL) || // CH0 TX+RX
+            (phys_addr >= 0xC0200000UL && phys_addr < 0xC0208000UL) || // CH1 TX+RX
+            (phys_addr >= 0xC0400000UL && phys_addr < 0xC0408000UL)) { // CH2 TX+RX
+            pr_info("HyperAMP queue block mapped at PA %#lx with NORMAL (cached) protection\n",
+                    phys_addr);
+        }
+        // Data 区：设置 uncached，避免 seL4(cached) 与 Linux(uncached) 的 cache 一致性问题
+        else if ((phys_addr >= 0xC0008000UL && phys_addr < 0xC0200000UL) || // CH0 Data
+                 (phys_addr >= 0xC0208000UL && phys_addr < 0xC0400000UL) || // CH1 Data
+                 (phys_addr >= 0xC0408000UL && phys_addr < 0xC0600000UL)) { // CH2 Data
+            vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
+            pr_info("HyperAMP data region mapped at PA %#lx with uncached protection (size: %#lx)\n",
+                    phys_addr, size);
+        }
+#endif
+
         err = remap_pfn_range(vma, vma->vm_start, vma->vm_pgoff, size,
                               vma->vm_page_prot);
         if (err)
