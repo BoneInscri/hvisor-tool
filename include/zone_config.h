@@ -123,7 +123,8 @@ struct arch_zone_config {
 
 #ifdef LOONGARCH64
 struct arch_zone_config {
-    __u64 acpi_rsdp_gpa; /* GPA of the reconstructed RSDP, filled by hvisor-tool */
+    __u64 acpi_rsdp_gpa; /* GPA of the reconstructed RSDP, filled by hvisor-tool
+                          */
 };
 #endif
 

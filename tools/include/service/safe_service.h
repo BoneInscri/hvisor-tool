@@ -27,9 +27,9 @@
 #define NPUCore_SERVICE_MAX_ID 16
 
 typedef struct {
-  unsigned int id;
-  const char *description;
-  int need_fetch_data;// need fetch data from shm (modified by NPUCore)
+    unsigned int id;
+    const char *description;
+    int need_fetch_data; // need fetch data from shm (modified by NPUCore)
 } Service;
 
 #endif // _SAFE_SERVICE_H_

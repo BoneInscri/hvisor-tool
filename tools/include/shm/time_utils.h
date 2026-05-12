@@ -3,7 +3,6 @@
 
 #include <time.h>
 
-
 extern struct timespec start_time;
 extern struct timespec end_time;
 extern struct timespec service_start_time;

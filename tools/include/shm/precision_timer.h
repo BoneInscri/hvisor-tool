@@ -17,17 +17,17 @@
 
 static inline uint64_t get_cntfrq(void) {
     uint64_t freq;
-    __asm__ volatile("mrs %0, cntfrq_el0" : "=r" (freq));
+    __asm__ volatile("mrs %0, cntfrq_el0" : "=r"(freq));
     return freq;
 }
 
 static inline uint64_t get_cntpct(void) {
     uint64_t count;
-    __asm__ volatile(
-        "isb\n\t"
-        "mrs %0, cntvct_el0"
-        : "=r" (count) : : "memory"
-    );
+    __asm__ volatile("isb\n\t"
+                     "mrs %0, cntvct_el0"
+                     : "=r"(count)
+                     :
+                     : "memory");
     return count;
 }
 
@@ -50,12 +50,14 @@ static inline uint64_t get_cntfrq(void) {
         uint64_t c0, c1;
         clock_gettime(CLOCK_MONOTONIC, &t0);
         __asm__ volatile("rdtime.d %0, $zero" : "=r"(c0));
-        do { clock_gettime(CLOCK_MONOTONIC, &t1); }
-        while ((t1.tv_sec - t0.tv_sec) * 1000000000LL +
-               (t1.tv_nsec - t0.tv_nsec) < 1000000LL);
+        do {
+            clock_gettime(CLOCK_MONOTONIC, &t1);
+        } while ((t1.tv_sec - t0.tv_sec) * 1000000000LL +
+                     (t1.tv_nsec - t0.tv_nsec) <
+                 1000000LL);
         __asm__ volatile("rdtime.d %0, $zero" : "=r"(c1));
-        int64_t ns = (t1.tv_sec - t0.tv_sec) * 1000000000LL +
-                     (t1.tv_nsec - t0.tv_nsec);
+        int64_t ns =
+            (t1.tv_sec - t0.tv_sec) * 1000000000LL + (t1.tv_nsec - t0.tv_nsec);
         return (c1 - c0) * 1000000000ULL / (uint64_t)ns;
     }
     /* cpucfg 0x5 存放 CPU 主频（Hz） */
@@ -79,14 +81,16 @@ static inline uint64_t get_cntfrq(void) {
     uint32_t lo0, hi0, lo1, hi1;
     clock_gettime(CLOCK_MONOTONIC, &t0);
     __asm__ volatile("rdtsc" : "=a"(lo0), "=d"(hi0));
-    do { clock_gettime(CLOCK_MONOTONIC, &t1); }
-    while ((t1.tv_sec - t0.tv_sec) * 1000000000LL +
-           (t1.tv_nsec - t0.tv_nsec) < 1000000LL);
+    do {
+        clock_gettime(CLOCK_MONOTONIC, &t1);
+    } while ((t1.tv_sec - t0.tv_sec) * 1000000000LL +
+                 (t1.tv_nsec - t0.tv_nsec) <
+             1000000LL);
     __asm__ volatile("rdtsc" : "=a"(lo1), "=d"(hi1));
     uint64_t c0 = ((uint64_t)hi0 << 32) | lo0;
     uint64_t c1 = ((uint64_t)hi1 << 32) | lo1;
-    int64_t ns = (t1.tv_sec - t0.tv_sec) * 1000000000LL +
-                 (t1.tv_nsec - t0.tv_nsec);
+    int64_t ns =
+        (t1.tv_sec - t0.tv_sec) * 1000000000LL + (t1.tv_nsec - t0.tv_nsec);
     return (c1 - c0) * 1000000000ULL / (uint64_t)ns;
 }
 
@@ -101,9 +105,7 @@ static inline uint64_t get_cntpct(void) {
 #include <time.h>
 
 /* 通用回退：使用 CLOCK_MONOTONIC，频率固定为 1GHz（纳秒单位） */
-static inline uint64_t get_cntfrq(void) {
-    return 1000000000ULL;
-}
+static inline uint64_t get_cntfrq(void) { return 1000000000ULL; }
 
 static inline uint64_t get_cntpct(void) {
     struct timespec ts;
@@ -113,32 +115,35 @@ static inline uint64_t get_cntpct(void) {
 
 #endif /* architecture */
 
-
 /**
  * 将 ticks 差值转换为微秒 (μs)
  */
-static inline uint64_t ticks_to_us(uint64_t ticks_start, uint64_t ticks_end, uint64_t freq) {
+static inline uint64_t ticks_to_us(uint64_t ticks_start, uint64_t ticks_end,
+                                   uint64_t freq) {
     return (ticks_end - ticks_start) * 1000000ULL / freq;
 }
 
 /**
  * 将 ticks 差值转换为纳秒 (ns)
  */
-static inline uint64_t ticks_to_ns(uint64_t ticks_start, uint64_t ticks_end, uint64_t freq) {
+static inline uint64_t ticks_to_ns(uint64_t ticks_start, uint64_t ticks_end,
+                                   uint64_t freq) {
     return (ticks_end - ticks_start) * 1000000000ULL / freq;
 }
 
 /**
  * 将 ticks 差值转换为毫秒 (ms)
  */
-static inline uint64_t ticks_to_ms(uint64_t ticks_start, uint64_t ticks_end, uint64_t freq) {
+static inline uint64_t ticks_to_ms(uint64_t ticks_start, uint64_t ticks_end,
+                                   uint64_t freq) {
     return (ticks_end - ticks_start) * 1000ULL / freq;
 }
 
 /**
  * 将 ticks 差值转换为秒 (s)
  */
-static inline double ticks_to_seconds(uint64_t ticks_start, uint64_t ticks_end, uint64_t freq) {
+static inline double ticks_to_seconds(uint64_t ticks_start, uint64_t ticks_end,
+                                      uint64_t freq) {
     return (double)(ticks_end - ticks_start) / (double)freq;
 }
 

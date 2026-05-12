@@ -15,6 +15,7 @@
  * @param config     zone_config，函数会追加 memory_regions 并填写 acpi_rsdp_gpa
  * @return 0 成功，-1 失败
  */
-int acpi_build_and_load(int dev_fd, const char *acpi_dir, zone_config_t *config);
+int acpi_build_and_load(int dev_fd, const char *acpi_dir,
+                        zone_config_t *config);
 
 #endif /* __ACPI_BUILDER_H */

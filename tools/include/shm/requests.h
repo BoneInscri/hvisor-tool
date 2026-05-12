@@ -1,21 +1,21 @@
 #ifndef _REQUEST_H_
 #define _REQUEST_H_
 
+#include "shm/client.h"
+#include <pthread.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <pthread.h>
 #include <time.h>
-#include <stdint.h>
-#include "shm/client.h"
 
 typedef struct {
-  uint32_t request_id;
-  uint32_t service_id;
-  uint8_t* data_string;
-  uint32_t size;
-  char *output_dir;
-  struct Client* client;
+    uint32_t request_id;
+    uint32_t service_id;
+    uint8_t *data_string;
+    uint32_t size;
+    char *output_dir;
+    struct Client *client;
 } Request;
 
 // typedef struct RequestNode {
@@ -36,6 +36,5 @@ typedef struct {
 // Request dequeue(RequestQueue *queue);
 // int is_empty(RequestQueue *queue);
 // void free_request_queue(RequestQueue *queue);
-
 
 #endif // _REQUEST_H_
